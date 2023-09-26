@@ -1,3 +1,4 @@
 localtest.ipynb
 log/
 logfile.log
+__pycache__
