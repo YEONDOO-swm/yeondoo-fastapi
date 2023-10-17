@@ -10,19 +10,38 @@ import openai
 from fastapi.responses import StreamingResponse
 from ports import *
 from typing import Annotated
+import requests
+import re
 # sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+Google_API_KEY = os.environ["GOOGLE_API_KEY"]
+Google_SEARCH_ENGINE_ID = os.environ["GOOGLE_SEARCH_ENGINE_ID"]
 
-async def get_papers(query : str = Query(None,description = "검색 키워드")):
+def get_papers(query : str = Query(None,description = "검색 키워드")):
     
-
-    search = arxiv.Search(
-    query = "'"+query+"'",
-    max_results = 50,#50개당 1초 소요 
-    sort_by = arxiv.SortCriterion.Relevance,
-    sort_order = arxiv.SortOrder.Descending
-    )
-
     papers = []
+    search_query = "site:arxiv.org " + query
+    url = f"https://www.googleapis.com/customsearch/v1?key={Google_API_KEY}&cx={Google_SEARCH_ENGINE_ID}&q={search_query}&start=0"
+    res = requests.get(url).json()
+
+    search_result = res.get("items")
+
+    pattern = r'^\d+\.\d+$'
+
+    paper_list = []
+
+    for i in range(len(search_result)):
+        paper_id = search_result[i]['link'].split('/')[-1]
+        if paper_id in paper_list:
+            continue
+        if bool(re.match(pattern, paper_id)):
+            paper_list.append(search_result[i]['link'].split('/')[-1])
+            
+    search = arxiv.Search(
+        id_list = paper_list,
+        max_results = len(paper_list),
+        sort_by = arxiv.SortCriterion.Relevance,
+        sort_order = arxiv.SortOrder.Descending
+    )
 
     for result in search.results():
         paper_info={}
@@ -33,6 +52,27 @@ async def get_papers(query : str = Query(None,description = "검색 키워드"))
         paper_info["summary"] = result.summary
         paper_info["url"] = result.entry_id
         papers.append(paper_info)
+
+    search = arxiv.Search(
+        query = "'"+query+"'",
+        max_results = 20,#50개당 1초 소요 
+        sort_by = arxiv.SortCriterion.Relevance,
+        sort_order = arxiv.SortOrder.Descending
+    )
+
+
+
+    for result in search.results():
+        paper_info={}
+        paper_info["paperId"] = result.entry_id.split('/')[-1][:-2]
+        paper_info["year"] = int(result.published.year)
+        paper_info["title"] = result.title
+        paper_info["authors"] = [author.name for author in result.authors]
+        paper_info["summary"] = result.summary
+        paper_info["url"] = result.entry_id
+        
+        papers.append(paper_info)
+
 
     return  {
         "papers":papers
