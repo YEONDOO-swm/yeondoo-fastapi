@@ -1,3 +1,6 @@
+MODEL = "gpt-3.5-turbo-16k"
+
+
 MAIN_PROMPT = """You are a computer science professor.
 Please provide concise and wise answers to the questions asked by the users.
 Please generate query in the asked language.
@@ -31,4 +34,7 @@ QUESTION :
 ----------------
 
 """
-MODEL = "gpt-3.5-turbo-16k"
+
+
+QUESTION_PROMPT = f"""Please rephrase the user's query in more specific and scholarly terminology. If the user did not ask the question in English, please translate it into English before generating.Please rephrase the user's query in more specific and scholarly terminology.
+"""
