@@ -104,7 +104,7 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID")):
     except:
         
         doc_file_name = result.download_pdf()
-        text_chunks, meta_chunks = read_pdf_and_create_chunks(doc_file_name, 1500)
+        text_chunks, meta_chunks = read_pdf_and_create_chunks(doc_file_name, 500)
 
 
         collection = client.create_collection(name=paperId,metadata = {"hnsw:space": "cosine"}, embedding_function=openai_ef)
@@ -134,8 +134,10 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID")):
     #     "questions" : response['choices'][0]['message']['content'].split('\n\n')[1].split('\n')[1:],
     # }
     return {
-        "ok" : True
+        "summary" : result.summary,
     }
+ 
+
 
 
 async def post_chat(data: Annotated[dict,{
@@ -160,27 +162,14 @@ async def post_chat(data: Annotated[dict,{
     except:
         raise HTTPException(status_code=400, detail="잘못된 요청: 임베딩 되지 않은 문서입니다.")
     
-    
-
-    messages = [
-            {"role": "system", "content": QUESTION_PROMPT},
-            {"role": "user","content": data['question']}
-    ]
-
-    response = openai.ChatCompletion.create(
-                model=MODEL,
-                messages=messages,
-                temperature=0,
-    )
-    rich_question = response['choices'][0]['message']['content']
 
     query_results = collection.query(
-        query_texts=rich_question,
+        query_texts=data['question'],
         n_results=2,
     )
-
     context = [ result for result in query_results['documents'][0]]
     
+
     if data["underline"] is not None:
         underline_query_results = collection.query(
             query_texts=data["underline"],
@@ -193,23 +182,19 @@ async def post_chat(data: Annotated[dict,{
     messages = [
             {"role": "system", "content": MAIN_PROMPT},
             {"role": "user", "content": CHAT_PROMPT},
-            {"role": "user", "content": f"contex(paperid={data['paperId']}) : {context}"},
+            {"role": "user", "content": f"***contex(paperid={data['paperId']}) : {context}***"},
     ]
     if data['extraPaperId'] is not None:
         extra_query_results = extra_collection.query(
-            query_texts=rich_question,
+            query_texts=data['question'],
             n_results=2,
         )
         extra_context = [ result for result in extra_query_results['documents'][0]]
         messages.append({"role": "user", "content": EXTRA_PAPER_PROMPT})
-        messages.append({"role": "user", "content": f"extra_contex(paperid={data['extraPaperId']}) : {extra_context}"})
+        messages.append({"role": "user", "content": f"***extra_contex(paperid={data['extraPaperId']}) : {extra_context}***"})
+        
     messages.append({"role": "user","content": f"user's question : {data['question']}"})
-    # messages = [
-    #         {"role": "system", "content": MAIN_PROMPT},
-    #         {"role": "user", "content": CHAT_PROMPT},
-    #         {"role": "user", "content": f"contex(paperid={data['paperId']}) : {context}"},
-    #         {"role": "user","content": f"user's question : {data['question']}"}
-    # ]
+
 
     response = openai.ChatCompletion.create(
             model=MODEL,

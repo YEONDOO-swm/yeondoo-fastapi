@@ -26,58 +26,52 @@ def read_pdf(filepath):
 
 def read_pdf_and_create_chunks(filepath, n):
 
-    ### READ IN PDF
     doc = fitz.open(filepath)
     tokenizer = tiktoken.get_encoding("cl100k_base")
 
     text_chunks = []
     meta_chunks = []
 
-
     for page_number in range(len(doc)):
         page = doc[page_number]
-        texts = page.get_text()
+        texts = page.get_text("blocks")
+        
 
-        text_temps = ""
-        total_token = 0
-        x = []
-        y = []
+        text_tmp = ""
 
-        for text in texts.split('\n'):
-            if len(text) == 0:
+        flag = False
+
+        x_min = -1
+        x_max = -1
+        y_min = -1
+        y_max = -1
+        for text in texts:
+            if text[6] == 1:
                 continue
-            if text[-1] == '-':
-                text = text[:-1]
+            if flag == False:
+                flag = True
+                x_min = text[0]
+                x_max = text[2]
+                y_min = text[1]
+                y_max = text[3]
+            text_tmp += text[4]
 
-            tokens = tokenizer.encode(text,disallowed_special=())
+            tokens = tokenizer.encode(text_tmp,disallowed_special=())
+            x_min = min(x_min,text[0])
+            x_max = max(x_max,text[2])
+            y_min = min(y_min,text[1])
+            y_max = max(y_max,text[3])
 
-            if total_token + len(tokens) > n:
-                meta_temps = [page_number,min(x),min(y),max(x),max(y)]
-                text_chunks.append(text_temps)
-                meta_chunks.append(meta_temps)
-                text_temps = ""
-                total_token = 0
-                x.clear()
-                y.clear()
-
-            total_token += len(tokens)
-            text_temps += text
-            text_instances = page.search_for(text)
-            if text_instances != None:
-                x.append(text_instances[0][0])
-                y.append(text_instances[0][1])
-                x.append(text_instances[0][2])
-                y.append(text_instances[0][3])
-                    
-                
-        if text_temps != "":
-            meta_temps = [page_number,min(x),min(y),max(x),max(y)]
-            text_chunks.append(text_temps)
-            meta_chunks.append(meta_temps)
-            text_temps = ""
-            total_token = 0
-            x.clear()
-            y.clear()
+            if len(tokens) >= n:
+                text_chunks.append(text_tmp)
+                meta_chunks.append([page_number,x_min,y_min,x_max,y_max])
+                text_tmp = ""
+                flag = False
+        if text_tmp != "" and len(text_tmp)>=10:
+            text_chunks.append(text_tmp)
+            meta_chunks.append([page_number,x_min,y_min,x_max,y_max])
+            text_tmp = ""
+            flag = False
 
     doc.close()
 
