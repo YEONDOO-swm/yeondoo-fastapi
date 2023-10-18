@@ -10,13 +10,13 @@ Try to be fun and engaging, but also polite and respectful.
 
 """
 
-CHAT_PROMPT = f"""
+CHAT_PROMPT = """
 Please refer to the context excerpts from the paper below and provide a response to the user's question based on them.
 When composing a response, ensure you summarize the essential points while avoiding unnecessary word repetition and keep it within three sentences.
 ----------------
 """
 
-GET_CHAT_PROMPT = f"""
+GET_CHAT_PROMPT = """
 you are the author of this paper. 
 Please refer to the abstract of the paper below, 
 1. provide  a brief introduction to its key points
@@ -36,5 +36,18 @@ QUESTION :
 """
 
 
-QUESTION_PROMPT = f"""Please rephrase the user's query in more specific and scholarly terminology. If the user did not ask the question in English, please translate it into English before generating.Please rephrase the user's query in more specific and scholarly terminology.
+QUESTION_PROMPT = """Please rephrase the user's query in more specific and scholarly terminology. If the user did not ask the question in English, please translate it into English before generating.Please rephrase the user's query in more specific and scholarly terminology.
+"""
+
+EXPORT_MARKDOWN_PROMPT = """Please create the given context in markdown format to fit the given situation.
+"""
+
+EXTRA_PAPER_PROMPT = """
+"You need to respond to the user's questions based on two different papers. 
+The content of the first paper is in the 'context,' and the content of the second paper is in the 'extra_context.' 
+Please generate appropriate answers to the user's questions using the context and extra_context.
+Do not use any information other than the provided context and extra_context.
+
+To distinguish which paper talking about when comparing each paper, you should first mention the paper ID and then provide the discussion.
+----------------
 """
