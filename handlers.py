@@ -3,7 +3,6 @@ import arxiv
 import chromadb
 from chromadb.utils import embedding_functions
 from utils import *
-import tiktoken
 import os
 from prompts import *
 import openai
@@ -13,6 +12,7 @@ from typing import Annotated
 import requests
 import re
 import time
+import httpx
 
 Google_API_KEY = os.environ["GOOGLE_API_KEY"]
 Google_SEARCH_ENGINE_ID = os.environ["GOOGLE_SEARCH_ENGINE_ID"]
@@ -171,8 +171,9 @@ async def post_chat(data: Annotated[dict,{
                     "extraPaperId" : str,
                     "underline" : str,
                     "pageIndex" : int,
+                    "key" : str,
 }]):
-    
+    extra_context = []
     client = chromadb.HttpClient(host='10.0.140.252', port=port_chroma_db)
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=os.environ['OPENAI_API_KEY'],
@@ -220,20 +221,62 @@ async def post_chat(data: Annotated[dict,{
     messages.append({"role": "user","content": f"user's question : {data['question']}"})
 
 
+    
+    if data['extraPaperId'] is not None:
+        data = {
+            "key" : data['key'],
+            "coordinates" : [meta for meta in query_results['metadatas'][0]] + [meta for meta in extra_query_results['metadatas'][0]],
+        }
+        post_coordinates(data)
+
+    else:
+        data = {
+            "key" : data['key'],
+            "coordinates" : [meta for meta in query_results['metadatas'][0]],
+        }
+        post_coordinates(data)
+
+    
     response = openai.ChatCompletion.create(
             model=MODEL,
             messages=messages,
             temperature=0,
-            stream = False,
+            max_tokens = 1000,
+            stream = True,
     )
-    if data['extraPaperId'] is not None:
-        return {"answer": response['choices'][0]['message']['content'],
-                "coordinates" : [meta for meta in query_results['metadatas'][0]] + [meta for meta in extra_query_results['metadatas'][0]],
-                "context" : context,
-                "extra_context" : extra_context,
-                }
-    else:
-        return {"answer": response['choices'][0]['message']['content'],
-                "coordinates" : [meta for meta in query_results['metadatas'][0]],
-                "context" : context,
-                }
+    def generate_chunks():
+        for chunk in response:
+            try:
+                # yield chunk["choices"][0]["delta"].content + "\n"
+                yield chunk["choices"][0]["delta"].content
+            except:
+                yield f"\n\ncontext : {context}\n\n\nextra_context : {extra_context},"
+                
+    return StreamingResponse(
+        content=generate_chunks(),
+        media_type="text/plain"
+    )
+
+
+async def post_coordinates(data: Annotated[dict,{
+                    "key" : str,
+                    "coordinates" : list,
+}]):
+
+    # 대상 서버의 IP 주소와 포트 설정
+    target_host = "10.0.129.165"
+    target_port = 8080
+
+    # 대상 서버의 URL 생성
+    target_url = f"http://{target_host}:{target_port}/api/coordinates?key={data['key']}"
+
+    # httpx를 사용하여 GET 요청 보내기
+    async with httpx.AsyncClient() as client:
+        payload = {"coordinates": data['coordinates']}  # 요청 데이터 준비
+        response = await client.post(target_url, json=payload)
+
+    # 응답 처리
+    status_code = response.status_code
+    response_data = response.json()
+
+    return {"status_code": status_code, "response_data": response_data}

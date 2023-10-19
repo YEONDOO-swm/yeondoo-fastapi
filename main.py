@@ -11,6 +11,9 @@ app = FastAPI()
 #     log_config_path = "./log/log.ini"
 #     uvicorn.run('main:app', host="0.0.0.0",port=port_uvicorn, reload=True,log_config=log_config_path)
 
+# if __name__ == '__main__':
+#     run()
+
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
@@ -26,5 +29,6 @@ async def post_api_chat(answer: Annotated[dict, Depends(post_chat)]):
 async def get_api_chat(answer: Annotated[dict, Depends(get_chat)]):
     return answer
     
-# if __name__ == '__main__':
-#     run()
+@app.post("/coordinates")
+async def post_api_coordinates(answer: Annotated[dict, Depends(get_chat)]):
+    return answer
