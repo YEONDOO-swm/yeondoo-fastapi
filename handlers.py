@@ -12,6 +12,7 @@ from ports import *
 from typing import Annotated
 import requests
 import re
+import time
 
 Google_API_KEY = os.environ["GOOGLE_API_KEY"]
 Google_SEARCH_ENGINE_ID = os.environ["GOOGLE_SEARCH_ENGINE_ID"]
@@ -87,6 +88,8 @@ def get_papers(query : str = Query(None,description = "검색 키워드")):
 
 async def get_chat(paperId : str = Query(None,description = "논문 ID")):
 
+    # start_time = time.time()
+
     client = chromadb.HttpClient(host='10.0.140.252', port=port_chroma_db)
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=os.environ['OPENAI_API_KEY'],
@@ -99,11 +102,24 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID")):
                     sort_order = arxiv.SortOrder.Descending
             )
     result = next(search.results())
+    # first_time = time.time()
     try:
         collection = client.get_collection(paperId, embedding_function=openai_ef)
     except:
         
-        doc_file_name = result.download_pdf()
+        prefix = "gs://arxiv-dataset/arxiv/arxiv/pdf"
+
+        src_file_name = os.path.join(prefix,paperId.split('.')[0],result.entry_id.split("/")[-1]+".pdf")
+
+        doc_file_name = os.path.join("./",paperId+".pdf")
+
+        cmd="gsutil -m cp "+src_file_name+" "+doc_file_name
+
+        os.system(cmd)
+
+        if not os.path.exists(doc_file_name):
+            doc_file_name = result.download_pdf()
+        # second_time = time.time()
         text_chunks, meta_chunks = read_pdf_and_create_chunks(doc_file_name, 500)
 
 
@@ -115,7 +131,7 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID")):
             metadatas = [{"paperId":paperId, "page":meta_chunks[j][0],"x0":meta_chunks[j][1],"y0":meta_chunks[j][2],"x1":meta_chunks[j][3],"y1":meta_chunks[j][4]} for j in range(len(text_chunks))],
         )
         os.remove(doc_file_name)
-
+        # third_time = time.time()
 
     # messages = [
     #         {"role": "system", "content": GET_CHAT_PROMPT},
@@ -133,6 +149,14 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID")):
     #     "summary" : response['choices'][0]['message']['content'].split('\n\n')[0].split('\n')[1:],
     #     "questions" : response['choices'][0]['message']['content'].split('\n\n')[1].split('\n')[1:],
     # }
+
+    # return {
+    #     "summary" : result.summary,
+    #     "first_time" : first_time - start_time,
+    #     "second_time" : second_time - first_time,
+    #     "third_time" : third_time - second_time
+    # }
+
     return {
         "summary" : result.summary,
     }
