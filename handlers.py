@@ -227,14 +227,14 @@ async def post_chat(data: Annotated[dict,{
             "key" : data['key'],
             "coordinates" : [meta for meta in query_results['metadatas'][0]] + [meta for meta in extra_query_results['metadatas'][0]],
         }
-        post_coordinates(data)
+        await post_coordinates(data)
 
     else:
         data = {
             "key" : data['key'],
             "coordinates" : [meta for meta in query_results['metadatas'][0]],
         }
-        post_coordinates(data)
+        await post_coordinates(data)
 
     
     response = openai.ChatCompletion.create(
