@@ -30,5 +30,5 @@ async def get_api_chat(answer: Annotated[dict, Depends(get_chat)]):
     return answer
     
 @app.post("/coordinates")
-async def post_api_coordinates(answer: Annotated[dict, Depends(get_chat)]):
+async def post_api_coordinates(answer: Annotated[dict, Depends(post_coordinates)]):
     return answer
