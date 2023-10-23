@@ -198,6 +198,8 @@ async def post_chat(data: Annotated[dict,{
     if data["underline"] is not None:
         underline_query_results = collection.query(
             query_texts=data["underline"],
+            where={"page": data['pageIndex']},
+            where_document={"$contains":data["underline"]},
             n_results=1,
         )
         underline_context = [ result for result in underline_query_results['documents'][0]]
@@ -250,7 +252,7 @@ async def post_chat(data: Annotated[dict,{
                 # yield chunk["choices"][0]["delta"].content + "\n"
                 yield chunk["choices"][0]["delta"].content
             except:
-                yield f"\n\ncontext : {context}\n\n\nextra_context : {extra_context},"
+                yield f"\n\ncontext : {context}\n\n\nextra_context : {extra_context},\n\n\nunderline_context : {underline_context}"
                 
     return StreamingResponse(
         content=generate_chunks(),
