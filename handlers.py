@@ -173,7 +173,11 @@ async def post_chat(data: Annotated[dict,{
                     "pageIndex" : int,
                     "key" : str,
 }]):
+    paper_context = set()
+    context = []
     extra_context = []
+    underline_context = []
+
     client = chromadb.HttpClient(host='10.0.140.252', port=port_chroma_db)
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=os.environ['OPENAI_API_KEY'],
@@ -192,10 +196,13 @@ async def post_chat(data: Annotated[dict,{
         query_texts=data['question'],
         n_results=2,
     )
-    context = [ result for result in query_results['documents'][0]]
-    
 
-    if data["underline"] is not None:
+    context = [ result for result in query_results['documents'][0]]
+
+    for result in query_results['documents'][0]:
+        paper_context.add(result)
+
+    if data["underline"] is not None and data["pageIndex"] is not None:
         underline_query_results = collection.query(
             query_texts=data["underline"],
             where={"page": data['pageIndex']},
@@ -203,13 +210,14 @@ async def post_chat(data: Annotated[dict,{
             n_results=1,
         )
         underline_context = [ result for result in underline_query_results['documents'][0]]
-        context = context + underline_context
+        for result in underline_query_results['documents'][0]:
+            paper_context.add(result)
 
     
     messages = [
             {"role": "system", "content": MAIN_PROMPT},
             {"role": "user", "content": CHAT_PROMPT},
-            {"role": "user", "content": f"***contex(paperid={data['paperId']}) : {context}***"},
+            {"role": "user", "content": f"***contex(paperid={data['paperId']}) : {paper_context}***"},
     ]
     if data['extraPaperId'] is not None:
         extra_query_results = extra_collection.query(
@@ -252,7 +260,7 @@ async def post_chat(data: Annotated[dict,{
                 # yield chunk["choices"][0]["delta"].content + "\n"
                 yield chunk["choices"][0]["delta"].content
             except:
-                yield f"\n\ncontext : {context}\n\n\nextra_context : {extra_context},\n\n\nunderline_context : {underline_context}"
+                yield f"\n\ncontext : {context}\n\n extra_context : {extra_context}\n\n underline_context : {underline_context}"
                 
     return StreamingResponse(
         content=generate_chunks(),
@@ -272,7 +280,7 @@ async def post_coordinates(data: Annotated[dict,{
     # 대상 서버의 URL 생성
     target_url = f"http://{target_host}:{target_port}/api/coordinates?key={data['key']}"
 
-    # httpx를 사용하여 GET 요청 보내기
+    # httpx를 사용하여 POST 요청 보내기
     async with httpx.AsyncClient() as client:
         payload = {"coordinates": data['coordinates']}  # 요청 데이터 준비
         response = await client.post(target_url, json=payload)
