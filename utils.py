@@ -11,7 +11,7 @@ def read_pdf(filepath):
     # prev = None
     # table = []
     for page in reader.pages:
-        page_number += 1
+        # page_number += 1
         pdf_text += page.extract_text()
         # pdf_text += page.extract_text() + f"\nPage Number: {page_number}"
     
@@ -95,11 +95,7 @@ def create_chunks(tokens, n, tokenizer):
         # If no end of sentence found, use n tokens as the chunk size
         if j == i + int(0.5 * n):
             j = min(i + n, len(tokens))
-        if j-i < n:
-            yield tokens[j-n:j]
-        else: 
-            yield tokens[i:j]
-        
+        yield tokens[i:j]
         i = j
 
 def create_chunks_with_overlap(tokens, n, tokenizer, overlap):
@@ -131,3 +127,16 @@ def create_chunks_with_overlap(tokens, n, tokenizer, overlap):
             k = 0
         i = k
 
+def create_exact_chunks_with_overlap(tokens, n, overlap):
+    i = 0
+    j = 0
+    while i < len(tokens):
+        # Find the nearest end of sentence within a range of 0.5 * n and 1.5 * n tokens
+        j += n
+        if j >= len(tokens):
+            yield tokens[-n:]
+            break
+        else:
+            yield tokens[i:j]
+        i = j
+        i -= overlap

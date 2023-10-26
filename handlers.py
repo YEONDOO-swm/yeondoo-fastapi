@@ -11,8 +11,9 @@ from ports import *
 from typing import Annotated
 import requests
 import re
-import time
 import httpx
+from database import *
+from collections import defaultdict
 
 Google_API_KEY = os.environ["GOOGLE_API_KEY"]
 Google_SEARCH_ENGINE_ID = os.environ["GOOGLE_SEARCH_ENGINE_ID"]
@@ -88,9 +89,7 @@ def get_papers(query : str = Query(None,description = "검색 키워드")):
 
 async def get_chat(paperId : str = Query(None,description = "논문 ID")):
 
-    # start_time = time.time()
-
-    client = chromadb.HttpClient(host='10.0.140.252', port=port_chroma_db)
+    client = chromadb.HttpClient(host='10.0.140.252', port=8000)
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=os.environ['OPENAI_API_KEY'],
                 model_name="text-embedding-ada-002"
@@ -102,7 +101,7 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID")):
                     sort_order = arxiv.SortOrder.Descending
             )
     result = next(search.results())
-    # first_time = time.time()
+
     try:
         collection = client.get_collection(paperId, embedding_function=openai_ef)
     except:
@@ -119,48 +118,35 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID")):
 
         if not os.path.exists(doc_file_name):
             doc_file_name = result.download_pdf()
-        # second_time = time.time()
-        text_chunks, meta_chunks = read_pdf_and_create_chunks(doc_file_name, 500)
+
+        texts = read_pdf(doc_file_name)
+
+        tokenizer = tiktoken.get_encoding("cl100k_base")
+        tokens = tokenizer.encode(texts, disallowed_special=())
+
+        chunks_100 = create_chunks(tokens, 100, tokenizer)
+        chunks_5k = create_exact_chunks_with_overlap(tokens, 5000, 500)
+        chunks_10k = create_exact_chunks_with_overlap(tokens, 10000, 500)
+
+        text_chunks_100 = [tokenizer.decode(chunk) for chunk in chunks_100]
+        text_chunks_5k = [tokenizer.decode(chunk) for chunk in chunks_5k]
+        text_chunks_10k = [tokenizer.decode(chunk) for chunk in chunks_10k]
 
 
         collection = client.create_collection(name=paperId,metadata = {"hnsw:space": "cosine"}, embedding_function=openai_ef)
 
         collection.add(
-            ids = [str(i) for i in range(len(text_chunks))],
-            documents = text_chunks,
-            metadatas = [{"paperId":paperId, "page":meta_chunks[j][0],"x0":meta_chunks[j][1],"y0":meta_chunks[j][2],"x1":meta_chunks[j][3],"y1":meta_chunks[j][4]} for j in range(len(text_chunks))],
+            ids = [str(i) for i in range(len(text_chunks_100))],
+            documents = text_chunks_100,
         )
+        for chunk in text_chunks_5k:
+            context_5k = ContextCreate(text=chunk,paperId=f"{paperId}_5k")
+            add_data(context_5k)
+        for chunk in text_chunks_10k:
+            context_10k = ContextCreate(text=chunk,paperId=f"{paperId}_10k")
+            add_data(context_10k)
         os.remove(doc_file_name)
-        # third_time = time.time()
 
-    # messages = [
-    #         {"role": "system", "content": GET_CHAT_PROMPT},
-    #         {"role": "user", "content": f"ABSTRACT : {result.summary}"},
-    # ]
-
-    # response = openai.ChatCompletion.create(
-    #         model=MODEL,
-    #         messages=messages,
-    #         temperature=0,
-    #         stream = False,
-    # )
-                
-    # return {
-    #     "summary" : response['choices'][0]['message']['content'].split('\n\n')[0].split('\n')[1:],
-    #     "questions" : response['choices'][0]['message']['content'].split('\n\n')[1].split('\n')[1:],
-    # }
-
-    # return {
-    #     "summary" : result.summary,
-    #     "first_time" : first_time - start_time,
-    #     "second_time" : second_time - first_time,
-    #     "third_time" : third_time - second_time
-    # }
-
-    return {
-        "summary" : result.summary,
-    }
- 
 
 
 
@@ -170,15 +156,17 @@ async def post_chat(data: Annotated[dict,{
                     "history" : list,
                     "extraPaperId" : str,
                     "underline" : str,
-                    "pageIndex" : int,
-                    "key" : str,
 }]):
-    paper_context = set()
-    context = []
-    extra_context = []
-    underline_context = []
+    id_point = defaultdict(int)
+    opt = "10k"
 
-    client = chromadb.HttpClient(host='10.0.140.252', port=port_chroma_db)
+    if data["extraPaperId"] is not None:
+        opt = "5k"
+    paper_context = []
+    extra_context = []
+
+
+    client = chromadb.HttpClient(host='10.0.140.252', port=8000)
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=os.environ['OPENAI_API_KEY'],
                 model_name="text-embedding-ada-002"
@@ -186,67 +174,75 @@ async def post_chat(data: Annotated[dict,{
 
     try:
         collection = client.get_collection(data['paperId'], embedding_function=openai_ef)
-        if data['extraPaperId'] is not None:
-            extra_collection = client.get_collection(data['extraPaperId'], embedding_function=openai_ef)
+        
     except:
         raise HTTPException(status_code=400, detail="잘못된 요청: 임베딩 되지 않은 문서입니다.")
-    
+
+    if data['extraPaperId'] is not None:
+        extra_id_point = defaultdict(int)
+        try:
+            extra_collection = client.get_collection(data['extraPaperId'], embedding_function=openai_ef)
+        except:
+            await get_chat(data['extraPaperId'])
+            extra_collection = client.get_collection(data['extraPaperId'], embedding_function=openai_ef)
+
+        extra_query_results = extra_collection.query(
+                query_texts=data['question'],
+                n_results=10,
+        )
+        
+        for result in extra_query_results['documents'][0]:
+            ctx = ContextCreate(text = result, paperId=f"{data['extraPaperId']}_{opt}")
+            search_results = search_data(ctx)
+            
+            for search_result in search_results:
+                id_integer = int(search_result.id)
+                extra_id_point[id_integer] += 1
+
+        extra_max_value = max(extra_id_point.values())  # 최대값 찾기
+        extra_max_keys = [key for key, value in extra_id_point.items() if value == extra_max_value]
+        r = read_data(min(extra_max_keys), f"{data['extraPaperId']}_{opt}")
+        extra_context.append(r.text)
 
     query_results = collection.query(
         query_texts=data['question'],
-        n_results=2,
+        n_results=10,
     )
 
-    context = [ result for result in query_results['documents'][0]]
-
     for result in query_results['documents'][0]:
-        paper_context.add(result)
 
-    if data["underline"] is not None and data["pageIndex"] is not None:
-        underline_query_results = collection.query(
-            query_texts=data["underline"],
-            where={"page": data['pageIndex']},
-            where_document={"$contains":data["underline"]},
-            n_results=1,
-        )
-        underline_context = [ result for result in underline_query_results['documents'][0]]
-        for result in underline_query_results['documents'][0]:
-            paper_context.add(result)
+        ctx = ContextCreate(text = result, paperId=f"{data['paperId']}_{opt}")
+        search_results = search_data(ctx)
+        for search_result in search_results:
+            id_integer = int(search_result.id)
+            id_point[id_integer] += 1
+            
+            
+    if data["underline"] is not None:
+        ctx = ContextCreate(text = data["underline"], paperId=f"{data['paperId']}_{opt}")
+        search_results = search_data(ctx)
+        for search_result in search_results:
+            id_integer = int(search_result.id)
+            id_point[search_result.id] += 10
 
-    
+
+    max_value = max(id_point.values())  # 최대값 찾기
+    max_keys = [key for key, value in id_point.items() if value == max_value]
+    r = read_data(min(max_keys), f"{data['paperId']}_{opt}")
+    paper_context.append(r.text)
     messages = [
             {"role": "system", "content": MAIN_PROMPT},
             {"role": "user", "content": CHAT_PROMPT},
             {"role": "user", "content": f"***contex(paperid={data['paperId']}) : {paper_context}***"},
     ]
+
     if data['extraPaperId'] is not None:
-        extra_query_results = extra_collection.query(
-            query_texts=data['question'],
-            n_results=2,
-        )
-        extra_context = [ result for result in extra_query_results['documents'][0]]
+        
         messages.append({"role": "user", "content": EXTRA_PAPER_PROMPT})
         messages.append({"role": "user", "content": f"***extra_contex(paperid={data['extraPaperId']}) : {extra_context}***"})
-        
+
     messages.append({"role": "user","content": f"user's question : {data['question']}"})
 
-
-    
-    if data['extraPaperId'] is not None:
-        data = {
-            "key" : data['key'],
-            "coordinates" : [meta for meta in query_results['metadatas'][0]] + [meta for meta in extra_query_results['metadatas'][0]],
-        }
-        await post_coordinates(data)
-
-    else:
-        data = {
-            "key" : data['key'],
-            "coordinates" : [meta for meta in query_results['metadatas'][0]],
-        }
-        await post_coordinates(data)
-
-    
     response = openai.ChatCompletion.create(
             model=MODEL,
             messages=messages,
@@ -254,13 +250,14 @@ async def post_chat(data: Annotated[dict,{
             max_tokens = 1000,
             stream = True,
     )
+
     def generate_chunks():
         for chunk in response:
             try:
                 # yield chunk["choices"][0]["delta"].content + "\n"
                 yield chunk["choices"][0]["delta"].content
             except:
-                yield f"\n\ncontext : {context}\n\n extra_context : {extra_context}\n\n underline_context : {underline_context}"
+                yield ""
                 
     return StreamingResponse(
         content=generate_chunks(),
