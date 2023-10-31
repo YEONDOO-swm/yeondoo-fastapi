@@ -42,7 +42,13 @@ class ContextResponse(BaseModel):
 
 def search_data(query: ContextCreate):
     db = SessionLocal()
-    results = db.query(Context).filter(Context.paperId == query.paperId, Context.text.like(f"%{query.text}%")).all()
+    reg = ""
+    for ch in query.text:
+        if ch == '\\':
+            reg += r'\\'
+        else:
+            reg += ch
+    results = db.query(Context).filter(Context.paperId == query.paperId, Context.text.like(f"%{reg}%")).all()
     db.close()
     return results
 

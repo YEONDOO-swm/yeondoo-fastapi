@@ -14,6 +14,7 @@ import re
 import httpx
 from database import *
 from collections import defaultdict
+import boto3
 
 Google_API_KEY = os.environ["GOOGLE_API_KEY"]
 Google_SEARCH_ENGINE_ID = os.environ["GOOGLE_SEARCH_ENGINE_ID"]
@@ -87,40 +88,62 @@ def get_papers(query : str = Query(None,description = "검색 키워드")):
     }
 
 
-async def get_chat(paperId : str = Query(None,description = "논문 ID")):
+async def get_chat(paperId : str = Query(None,description = "논문 ID"), 
+                   userPdf : bool = Query(None,description = "유저 pdf 업로드 여부"),
+                   ):
+    
+    pattern = r"/"
+    replacement = "."
+    emb_paperId = re.sub(pattern, replacement, paperId)
 
-    client = chromadb.HttpClient(host='10.0.140.252', port=8000)
+    client = chromadb.HttpClient(host='10.0.140.252', port=port_chroma_db)
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=os.environ['OPENAI_API_KEY'],
                 model_name="text-embedding-ada-002"
     )
-    search = arxiv.Search(
+    references = None
+    if userPdf:
+        s3 = boto3.resource('s3')
+        s3_key = paperId + '.pdf'
+        doc_file_name = f"./log/{s3_key}"
+
+        s3.meta.client.download_file(s3_bucket, s3_key, doc_file_name)
+
+    else:
+        search = arxiv.Search(
                     id_list = [paperId],
                     max_results = 1,
                     sort_by = arxiv.SortCriterion.Relevance,
                     sort_order = arxiv.SortOrder.Descending
             )
-    result = next(search.results())
+        result = next(search.results())
 
-    try:
-        collection = client.get_collection(paperId, embedding_function=openai_ef)
-    except:
-        
         prefix = "gs://arxiv-dataset/arxiv/arxiv/pdf"
+        if paperId == emb_paperId:
+            src_file_name = os.path.join(prefix,paperId.split('.')[0],result.entry_id.split("/")[-1]+".pdf")
 
-        src_file_name = os.path.join(prefix,paperId.split('.')[0],result.entry_id.split("/")[-1]+".pdf")
+            doc_file_name = os.path.join("./log/",paperId+".pdf")
+        else:
+            src_file_name = os.path.join(prefix,paperId.split('/')[0],result.entry_id.split("/")[-1]+".pdf")
 
-        doc_file_name = os.path.join("./",paperId+".pdf")
+            doc_file_name = os.path.join("./log/",emb_paperId+".pdf")
 
         cmd="gsutil -m cp "+src_file_name+" "+doc_file_name
 
         os.system(cmd)
+        
 
         if not os.path.exists(doc_file_name):
-            doc_file_name = result.download_pdf()
+            doc_file_name = result.download_pdf("./log/")
+    
+    texts = read_pdf(doc_file_name)
+    references = extract_reference(texts)
 
-        texts = read_pdf(doc_file_name)
-
+    try:
+        collection = client.get_collection(emb_paperId, embedding_function=openai_ef)
+    
+    except:
+        
         tokenizer = tiktoken.get_encoding("cl100k_base")
         tokens = tokenizer.encode(texts, disallowed_special=())
 
@@ -133,22 +156,25 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID")):
         text_chunks_10k = [tokenizer.decode(chunk) for chunk in chunks_10k]
 
 
-        collection = client.create_collection(name=paperId,metadata = {"hnsw:space": "cosine"}, embedding_function=openai_ef)
+        collection = client.create_collection(name=emb_paperId,metadata = {"hnsw:space": "cosine"}, embedding_function=openai_ef)
 
         collection.add(
             ids = [str(i) for i in range(len(text_chunks_100))],
             documents = text_chunks_100,
         )
         for chunk in text_chunks_5k:
-            context_5k = ContextCreate(text=chunk,paperId=f"{paperId}_5k")
+            context_5k = ContextCreate(text=chunk,paperId=f"{emb_paperId}_5k")
             add_data(context_5k)
         for chunk in text_chunks_10k:
-            context_10k = ContextCreate(text=chunk,paperId=f"{paperId}_10k")
+            context_10k = ContextCreate(text=chunk,paperId=f"{emb_paperId}_10k")
             add_data(context_10k)
-        os.remove(doc_file_name)
+
+    os.remove(doc_file_name)
 
 
-
+    return {
+        "references" : references
+    }
 
 async def post_chat(data: Annotated[dict,{
                     "paperId" : str,
@@ -165,6 +191,10 @@ async def post_chat(data: Annotated[dict,{
     paper_context = []
     extra_context = []
 
+    pattern = r"/"
+    replacement = "."
+    data['paperId'] = re.sub(pattern, replacement, data['paperId'])
+    data["extraPaperId"] = re.sub(pattern, replacement, data["extraPaperId"])
 
     client = chromadb.HttpClient(host='10.0.140.252', port=8000)
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
@@ -213,6 +243,7 @@ async def post_chat(data: Annotated[dict,{
 
         ctx = ContextCreate(text = result, paperId=f"{data['paperId']}_{opt}")
         search_results = search_data(ctx)
+
         for search_result in search_results:
             id_integer = int(search_result.id)
             id_point[id_integer] += 1
@@ -223,7 +254,7 @@ async def post_chat(data: Annotated[dict,{
         search_results = search_data(ctx)
         for search_result in search_results:
             id_integer = int(search_result.id)
-            id_point[search_result.id] += 10
+            id_point[id_integer] += 10
 
 
     max_value = max(id_point.values())  # 최대값 찾기
@@ -254,13 +285,15 @@ async def post_chat(data: Annotated[dict,{
     def generate_chunks():
         for chunk in response:
             try:
-                # yield chunk["choices"][0]["delta"].content + "\n"
-                yield chunk["choices"][0]["delta"].content
+                yield chunk["choices"][0]["delta"].content + "\n"
+                # yield chunk["choices"][0]["delta"].content
             except:
                 yield ""
+                # yield "\n"
                 
     return StreamingResponse(
         content=generate_chunks(),
+        # media_type="text/event-stream"
         media_type="text/plain"
     )
 

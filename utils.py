@@ -1,7 +1,7 @@
 from PyPDF2 import PdfReader
 import fitz
 import tiktoken
-
+import re
 def read_pdf(filepath):
     """Takes a filepath to a PDF and returns a string of the PDF's contents"""
     # creating a pdf reader object
@@ -140,3 +140,19 @@ def create_exact_chunks_with_overlap(tokens, n, overlap):
             yield tokens[i:j]
         i = j
         i -= overlap
+
+def extract_reference(pdf_text):
+    ret = []
+    try:
+        reference_pattern = re.compile(r'(?i)(arXiv:|CoRR, abs/)([0-9]{4}\.[0-9]{4,6}|.*\.[0.9]{7})')
+
+        # reference_pattern = re.compile(r'(?i)(arXiv:([0-9]{4}\.[0-9]{4,6}|.*\.[0-9]{7}))|(?i)(CoRR, abs/([0-9]{4}\.[0-9]{4,6}|.*\.[0-9]{7}))')
+        matches = reference_pattern.findall(pdf_text)
+        for match in matches:
+            reference = match[1] if match[1] else match[3]
+            ret.append(reference)
+
+    except Exception as e:
+        print(e)
+
+    return ret
