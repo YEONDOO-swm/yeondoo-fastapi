@@ -273,7 +273,6 @@ async def post_chat(data: Annotated[dict,{
         messages.append({"role": "user", "content": EXTRA_PAPER_PROMPT})
         messages.append({"role": "user", "content": f"***extra_contex(paperid={data['extraPaperId']}) : {extra_context}***"})
 
-    messages.append({""})
     messages.append({"role": "user","content": f"user's question : {data['question']}"})
 
     response = openai.ChatCompletion.create(
