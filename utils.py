@@ -144,8 +144,8 @@ def create_exact_chunks_with_overlap(tokens, n, overlap):
 def extract_reference(pdf_text, paperId):
     ret = []
     try:
-        reference_pattern = re.compile(r'(?i)(arXiv:|CoRR, abs/)([0-9]{4}\.[0-9]{4,6}|.*\.[0.9]{7})')
-
+        # reference_pattern = re.compile(r'(?i)(arXiv:|CoRR, abs/)([0-9]{4}\.[0-9]{4,6}|.*\.[0.9]{7})')
+        reference_pattern = re.compile(r'(?i)(arXiv:|CoRR, abs/)([0-9]{4}\.[0-9]{4,6}|.*[/][0.9]{7})')
         # reference_pattern = re.compile(r'(?i)(arXiv:([0-9]{4}\.[0-9]{4,6}|.*\.[0-9]{7}))|(?i)(CoRR, abs/([0-9]{4}\.[0-9]{4,6}|.*\.[0-9]{7}))')
         matches = reference_pattern.findall(pdf_text)
         for match in matches:
