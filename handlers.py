@@ -137,7 +137,7 @@ async def get_chat(paperId : str = Query(None,description = "논문 ID"),
             doc_file_name = result.download_pdf("./log/")
     
     texts = read_pdf(doc_file_name)
-    references = extract_reference(texts)
+    references = extract_reference(texts, paperId)
 
     try:
         collection = client.get_collection(emb_paperId, embedding_function=openai_ef)
@@ -194,7 +194,7 @@ async def post_chat(data: Annotated[dict,{
     pattern = r"/"
     replacement = "."
     data['paperId'] = re.sub(pattern, replacement, data['paperId'])
-    data["extraPaperId"] = re.sub(pattern, replacement, data["extraPaperId"])
+    
 
     client = chromadb.HttpClient(host='10.0.140.252', port=8000)
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
@@ -209,6 +209,7 @@ async def post_chat(data: Annotated[dict,{
         raise HTTPException(status_code=400, detail="잘못된 요청: 임베딩 되지 않은 문서입니다.")
 
     if data['extraPaperId'] is not None:
+        data["extraPaperId"] = re.sub(pattern, replacement, data["extraPaperId"])
         extra_id_point = defaultdict(int)
         try:
             extra_collection = client.get_collection(data['extraPaperId'], embedding_function=openai_ef)
@@ -272,6 +273,7 @@ async def post_chat(data: Annotated[dict,{
         messages.append({"role": "user", "content": EXTRA_PAPER_PROMPT})
         messages.append({"role": "user", "content": f"***extra_contex(paperid={data['extraPaperId']}) : {extra_context}***"})
 
+    messages.append({""})
     messages.append({"role": "user","content": f"user's question : {data['question']}"})
 
     response = openai.ChatCompletion.create(
