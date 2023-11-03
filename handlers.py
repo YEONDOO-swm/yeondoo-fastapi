@@ -183,6 +183,7 @@ async def post_chat(data: Annotated[dict,{
                     "extraPaperId" : str,
                     "underline" : str,
 }]):
+    print(f"{data['history']}")
     id_point = defaultdict(int)
     opt = "10k"
 
@@ -249,6 +250,23 @@ async def post_chat(data: Annotated[dict,{
             id_integer = int(search_result.id)
             id_point[id_integer] += 1
             
+    if data['history'] is not None:
+        for history in data['history']:
+            prev_query_results = collection.query(
+                query_texts = history[0],
+                n_results=5,
+            )
+
+            for result in prev_query_results['documents'][0]:
+
+                ctx = ContextCreate(text = result, paperId=f"{data['paperId']}_{opt}")
+                search_results = search_data(ctx)
+
+                for search_result in search_results:
+                    id_integer = int(search_result.id)
+                    id_point[id_integer] += 1 * 0.5
+
+    
             
     if data["underline"] is not None:
         ctx = ContextCreate(text = data["underline"], paperId=f"{data['paperId']}_{opt}")
@@ -262,18 +280,28 @@ async def post_chat(data: Annotated[dict,{
     max_keys = [key for key, value in id_point.items() if value == max_value]
     r = read_data(min(max_keys), f"{data['paperId']}_{opt}")
     paper_context.append(r.text)
+
+    
     messages = [
-            {"role": "system", "content": MAIN_PROMPT},
-            {"role": "user", "content": CHAT_PROMPT},
-            {"role": "user", "content": f"***contex(paperid={data['paperId']}) : {paper_context}***"},
+            {"role": "system", "content": MAIN_PROMPT}
     ]
-
+    if data['history'] is not None:
+        for history in data['history']:
+            messages.append({"role": "user", "content": history[0]})
+            messages.append({"role": "assistant", "content": history[1]})
+            
     if data['extraPaperId'] is not None:
-        
-        messages.append({"role": "user", "content": EXTRA_PAPER_PROMPT})
-        messages.append({"role": "user", "content": f"***extra_contex(paperid={data['extraPaperId']}) : {extra_context}***"})
-
-    messages.append({"role": "user","content": f"user's question : {data['question']}"})
+        if data["underline"] is not None:
+            context_prompt = EXTRA_CONTEXT_WITH_UNDERLINE_PROMPT + f"\n***contex(paperid={data['paperId']}) : {paper_context}***\n" + f"\n***extra_contex(paperid={data['extraPaperId']}) : {extra_context}***\n" +f"***underline : {data['underline']}***\n" +f"***user's question : {data['question']}***"
+        else:
+            context_prompt = EXTRA_CONTEXT_PROMPT + f"\n***contex(paperid={data['paperId']}) : {paper_context}***\n" + f"\n***extra_contex(paperid={data['extraPaperId']}) : {extra_context}***\n" + f"***user's question : {data['question']}***"
+    else:
+        if data["underline"] is not None:
+            context_prompt = CONTEXT_WITH_UNDERLINE_PROMPT + f"\n***contex(paperid={data['paperId']}) : {paper_context}***\n" +f"***underline : {data['underline']}***\n"+ f"***user's question : {data['question']}***"
+        else:
+            context_prompt = CONTEXT_PROMPT + f"\n***contex(paperid={data['paperId']}) : {paper_context}***\n" + f"***user's question : {data['question']}***"
+    
+    messages.append({"role": "user","content": context_prompt})
 
     response = openai.ChatCompletion.create(
             model=MODEL,
@@ -287,14 +315,11 @@ async def post_chat(data: Annotated[dict,{
         for chunk in response:
             try:
                 yield chunk["choices"][0]["delta"].content + "\n"
-                # yield chunk["choices"][0]["delta"].content
             except:
-                yield ""
-                # yield "\n"
+                yield "\n"
                 
     return StreamingResponse(
         content=generate_chunks(),
-        # media_type="text/event-stream"
         media_type="text/plain"
     )
 
