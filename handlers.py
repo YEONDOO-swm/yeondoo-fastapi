@@ -183,7 +183,7 @@ async def post_chat(data: Annotated[dict,{
                     "extraPaperId" : str,
                     "underline" : str,
 }]):
-    print(f"{data['history']}")
+    
     id_point = defaultdict(int)
     opt = "10k"
 
