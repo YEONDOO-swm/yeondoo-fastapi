@@ -9,7 +9,7 @@ import os
 
 # SQLAlchemy 연결 설정
 db_url = f"mysql+pymysql://{os.environ['DB_ID']}:{os.environ['DB_PW']}@{os.environ['DB_DOMAIN']}/MAIN"
-engine = create_engine(db_url, reconnect=True)
+engine = create_engine(db_url, pool_pre_ping=True)
 
 # SQLAlchemy 세션 생성
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
