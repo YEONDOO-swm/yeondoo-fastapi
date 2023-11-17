@@ -6,7 +6,7 @@ from utils import *
 import os
 from prompts import *
 import openai
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from ports import *
 from typing import Annotated
 import requests
@@ -346,3 +346,17 @@ async def post_coordinates(data: Annotated[dict,{
     response_data = response.json()
 
     return {"status_code": status_code, "response_data": response_data}
+
+
+
+async def test(paperId : str = Query(None,description = "논문 ID"), ):
+    if paperId == "be.test":
+
+        return JSONResponse(
+                status_code=500,
+                content={"message": "Internal Server Error"}
+        )
+    
+    return {
+        "ok" : "ok"
+    }
