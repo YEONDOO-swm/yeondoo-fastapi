@@ -303,13 +303,20 @@ async def post_chat(data: Annotated[dict,{
     
     messages.append({"role": "user","content": context_prompt})
 
-    response = openai.ChatCompletion.create(
+    
+    try:
+        response = openai.ChatCompletion.create(
             model=MODEL,
             messages=messages,
             temperature=0,
             max_tokens = 1000,
             stream = True,
-    )
+        )
+
+    except openai.error.Timeout as e:
+        # 응답 대기 시간 초과 에러인 경우 408 응답을 반환합니다.
+        
+        return HTTPException(status_code=408, detail="Request Timeout")
 
     def generate_chunks():
         for chunk in response:
